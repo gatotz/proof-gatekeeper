@@ -79,11 +79,43 @@ function sleep(ms: number): Promise<void> {
  * submission testing is pending the corrected key.
  */
 export class KurierClient {
+  private readonly apiKey: string | undefined;
+
   constructor(
     private readonly helperPath: string,
     private readonly vkHash: string,
     private readonly log: (msg: string) => void = () => undefined,
-  ) {}
+  ) {
+    // Direct mode (Fly.io / any host without the vault helper): when
+    // KURIER_API_KEY is set, call api.kurier.xyz directly instead of
+    // shelling out to kurier.py. The key is never logged.
+    const k = process.env.KURIER_API_KEY;
+    this.apiKey = k && k.trim().length > 0 ? k.trim() : undefined;
+  }
+
+  private async callDirect(method: "GET" | "POST", path: string, payload?: unknown): Promise<KurierResult> {
+    const url = `https://api.kurier.xyz/api/v1${path}`;
+    const res = await fetch(url, {
+      method,
+      headers: {
+        // api.kurier.xyz sits behind Cloudflare, which blocks the default
+        // Python-urllib UA with error 1010 — same reason kurier.py sends
+        // a browser UA.
+        "User-Agent":
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Content-Type": "application/json",
+      },
+      body: payload === undefined ? undefined : JSON.stringify(payload),
+      signal: AbortSignal.timeout(70_000),
+    });
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      body = null;
+    }
+    return { httpStatus: res.status, body };
+  }
 
   private async runHelper(args: string[]): Promise<KurierResult> {
     let stdout: string;
@@ -121,6 +153,17 @@ export class KurierClient {
 
   /** Submit a Groth16 proof to Kurier. Files are temp-only, deleted after. */
   async submitProof(proof: Groth16Proof, publicSignals: string[]): Promise<KurierSubmission> {
+    if (this.apiKey) {
+      const result = await this.callDirect("POST", `/submit-proof/${this.apiKey}`, {
+        proofType: "groth16",
+        vkRegistered: true,
+        proofOptions: { library: "snarkjs", curve: "bn128" },
+        proofData: { proof, publicSignals, vk: this.vkHash },
+      });
+      const jobId = findJobId(result.body);
+      const ok = result.httpStatus >= 200 && result.httpStatus < 300 && jobId !== null;
+      return { ok, httpStatus: result.httpStatus, jobId, body: result.body };
+    }
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "agent-games-kurier-"));
     const proofFile = path.join(dir, "proof.json");
     const signalsFile = path.join(dir, "public.json");
@@ -149,6 +192,9 @@ export class KurierClient {
   }
 
   async jobStatus(jobId: string): Promise<KurierResult> {
+    if (this.apiKey) {
+      return this.callDirect("GET", `/job-status/${this.apiKey}/${jobId}`);
+    }
     return this.runHelper(["job-status", "--job-id", jobId]);
   }
 

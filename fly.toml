@@ -1,0 +1,42 @@
+# Fly.io config for the Agent Games Proof Gatekeeper.
+# App name is set at launch time (flyctl launch --name <name>).
+# Secrets are set via `flyctl secrets set AGENT_GAMES_HMAC_SECRET=... KURIER_API_KEY=...`
+# Region sin = Singapore (closest to Indonesia).
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  PORT = "3000"
+  HOST = "0.0.0.0"
+
+# Persistent volume for data/seen.json (PROOF_REUSED detection survives restarts).
+[[mounts]]
+  source = "gatekeeper_data"
+  destination = "/app/data"
+
+[[services]]
+  internal_port = 3000
+  protocol = "tcp"
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    handlers = ["http"]
+    port = 80
+    force_https = true
+
+  [[services.ports]]
+    handlers = ["tls", "http"]
+    port = 443
+    force_https = true
+
+  # /health must answer 200 with the signed preflight body.
+  [[services.http_checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "15s"
+    method = "GET"
+    path = "/health"

@@ -174,7 +174,7 @@ export function createServer(config: Config, deps: ServerDeps): http.Server {
           sendSigned(res, 200, preflightBody());
           return;
         }
-        if (req.method === "POST" && url === "/agent") {
+        if (req.method === "POST" && (url === "/agent" || url === "/")) {
           let rawBody: Buffer;
           try {
             rawBody = await readBody(req);

@@ -1,5 +1,30 @@
 # Deploy — Proof Gatekeeper agent
 
+## Status (2026-11-15 ~08:35 WIB) — localtunnel Attempt 2 FAILED (definitive)
+
+- **localtunnel CANNOT work on this VM.** The preload hack was investigated,
+  not fully built, because a deeper blocker was proven first. The axios
+  allocation call CAN be fixed (HttpsProxyAgent routes it through the egress
+  proxy; verified: `GET https://localtunnel.me/<subdomain>` returns 200 with
+  an allocation). But the **data connection cannot work**: localtunnel opens a
+  raw TCP socket to `localtunnel.me:<high-port>` (e.g. 25845, 33257), and the
+  egress proxy **silently drops CONNECT to that port** (no response, timeout).
+  Direct TCP is also blocked on this VM. So the tunnel can never forward
+  traffic, even with the preload hack.
+- **CONNECT allowlist evidence (direct tests, 2026-11-15 ~08:35 WIB):**
+  `localhost.run:22` → 200 (SSH works, current tunnel); `localtunnel.me:443`
+  → 200; `localtunnel.me:80` → 200; `example.com:80` → TIMEOUT;
+  `localtunnel.me:25845` → TIMEOUT; `localtunnel.me:33257` → TIMEOUT. The
+  proxy allows CONNECT only to allowlisted host:port pairs (standard ports
+  for allowlisted hosts, plus localhost.run:22 for SSH). The localtunnel data
+  port is not allowlisted. **Do not retry localtunnel on this VM.**
+- **Consequence:** localhost.run remains the only working public URL, despite
+  its free-domain rotation (4 rotations in ~35 min this morning). Before
+  Round 03 (17:30 WIB), re-read the CURRENT URL from the journal and
+  re-register it in the dashboard. A stable domain needs a localhost.run
+  custom-domain plan (paid) or another tunnel whose data path uses an
+  allowlisted port (443 or 22).
+
 ## Status (2026-11-15 ~07:54 WIB) — PUBLIC URL LIVE via localhost.run (Attempt 1 WORKED)
 
 - **PUBLIC URL: https://7ac29131a27bbb.app.lhr.life** — verified end-to-end
@@ -210,3 +235,45 @@ systemctl restart gatekeeper.service
 4. Register the endpoint URL in the Agent Games dashboard, complete the
   signed preflight + at least one practice task. Entries lock while a
   round is open. Use the CURRENT URL from the journal, not a stale one.
+
+## Fly.io deploy (added 2026-11-15 ~21:00 WIB — user chose this over tunnels)
+
+Why: localhost.run URL rotates + the VM was replaced 5x on 2026-11-15, wiping the
+gatekeeper + tunnel units each time (Round 03 lost). ngrok's tunnel endpoint
+(tunnel.ngrok.com) is unreachable from this VM (tested 20:56 WIB). Fly.io hosts
+the service itself: stable public URL, no tunnel, no VM-wipe risk.
+
+Files (ready, in ~/workspace/agent-games/gatekeeper/):
+- Dockerfile — node:20-slim, pre-built dist/, circuits/, runtime deps only.
+  Secrets are NOT in the image.
+- fly.toml — region sin (Singapore), PORT 3000, HOST 0.0.0.0, persistent
+  volume gatekeeper_data mounted at /app/data (seen.json survives restarts),
+  /health check, min_machines_running = 1, auto_stop_machines = false.
+- .dockerignore — excludes node_modules, .env, data, test, src, .git.
+- src/kurier.ts — direct mode added 2026-11-15 ~21:00 WIB: when the
+  KURIER_API_KEY env var is set, submit-proof / job-status call
+  api.kurier.xyz directly via fetch (browser UA, same payload as kurier.py);
+  otherwise it shells out to kurier.py as before. Tests: 97/97 pass after
+  the change (npm run build + npm test, 2026-11-15 ~21:00 WIB).
+- flyctl v0.3.187 installed at ~/.fly/bin/flyctl (manual tarball extract;
+  the install.sh tar failed on ownership).
+
+Deploy steps (needs the user):
+1. User creates a Fly.io account at https://fly.io (free tier; may ask for a
+   card for verification, free tier itself does not charge within limits).
+2. Auth: either the user runs `flyctl auth login` himself, OR he creates a
+   Fly.io API token (https://fly.io/user/personal_access_tokens) and submits
+   it via Secure Vault → set FLY_API_TOKEN and deploy from this VM.
+3. Kurier key for Fly.io: the vault copy (custom.kurier) is NOT readable back,
+   so the user must copy the key from the Kurier dashboard and submit it via
+   Secure Vault (new entry) → `flyctl secrets set KURIER_API_KEY=<value>`.
+   The HMAC secret CAN be set from the local .env (readable on disk).
+4. Deploy: `flyctl launch --name <unique-name> --no-deploy` (first time, to
+   create the app + volume) then `flyctl secrets set AGENT_GAMES_HMAC_SECRET=...
+   KURIER_API_KEY=...` then `flyctl deploy`. URL will be
+   https://<name>.fly.dev — register THAT in the Agent Games dashboard.
+5. Re-verify /health + POST / preflight on the fly.dev URL before the round.
+
+Note: flyctl is NOT authenticated yet (flyctl auth whoami → "No access token").
+Docker is NOT installed on this VM, so the image builds on Fly.io's remote
+builder (flyctl deploy handles it).
