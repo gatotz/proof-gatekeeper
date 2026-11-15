@@ -1,4 +1,6 @@
+import fs from "node:fs";
 import http from "node:http";
+import path from "node:path";
 import type { Config } from "./config";
 import { canProve, decide, type ReasonCode, type TaskEnvelope } from "./decision";
 import { SIGNATURE_HEADER, signBody, verifySignature } from "./hmac";
@@ -115,19 +117,26 @@ export function createServer(config: Config, deps: ServerDeps): http.Server {
     if (!canProve(outcome)) {
       if (outcome.reason === "INVALID_TASK") {
         // Log the envelope shape so a platform format mismatch is
-        // diagnosable from the machine logs (no secrets in the envelope).
-        log(
-          `[task ${taskId ?? "?"}] INVALID_TASK envelope: ` +
-            JSON.stringify({
-              type: (envelope as unknown as Record<string, unknown>).type ?? null,
-              task_id: taskId,
-              mode: (envelope as unknown as Record<string, unknown>).mode ?? null,
-              issued_at: (envelope as unknown as Record<string, unknown>).issued_at ?? null,
-              deadline_at: (envelope as unknown as Record<string, unknown>).deadline_at ?? null,
-              input_keys: envelope && envelope.input ? Object.keys(envelope.input) : null,
-              input: envelope ? envelope.input : null,
-            }),
-        );
+        // diagnosable from the machine logs (no secrets in the envelope),
+        // and persist the full envelope to the volume for inspection.
+        const diag = {
+          type: (envelope as unknown as Record<string, unknown>).type ?? null,
+          task_id: taskId,
+          mode: (envelope as unknown as Record<string, unknown>).mode ?? null,
+          issued_at: (envelope as unknown as Record<string, unknown>).issued_at ?? null,
+          deadline_at: (envelope as unknown as Record<string, unknown>).deadline_at ?? null,
+          input_keys: envelope && envelope.input ? Object.keys(envelope.input) : null,
+          input: envelope ? envelope.input : null,
+        };
+        log(`[task ${taskId ?? "?"}] INVALID_TASK envelope: ` + JSON.stringify(diag));
+        try {
+          fs.writeFileSync(
+            path.join(path.dirname(config.seenFile), "last-invalid-task.json"),
+            JSON.stringify(diag, null, 2),
+          );
+        } catch {
+          // Non-fatal: the log line above already carries the diagnosis.
+        }
       }
       log(`[task ${taskId ?? "?"}] ${outcome.decision} ${outcome.reason} (no proof)`);
       sendSigned(res, 200, noProofResponse(outcome.decision, outcome.reason));

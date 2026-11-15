@@ -72,6 +72,10 @@ const HEX32 = /^0x[0-9a-fA-F]{64}$/;
 // 32-byte tx-hash form and the 16-byte UUID form the platform uses for
 // practice tasks (0x + 32 hex, i.e. a UUID without dashes).
 const HEX16 = /^0x[0-9a-fA-F]{32}$/;
+// Verification keys: the platform may send a 20-byte address OR a 32-byte
+// hash. The circuit only checks equality of the two vk hashes, so either
+// form works as long as the mapping (hashVk) is consistent.
+const isAddrOrHash = (v: string): boolean => HEX20.test(v) || HEX32.test(v);
 
 function invalid(): DecisionOutcome {
   return { decision: "REJECT", reason: "INVALID_TASK", statelessPass: false };
@@ -122,8 +126,8 @@ export function decide(
     return invalid();
   }
   if (
-    !HEX20.test(input.registered_vk) ||
-    !HEX20.test(input.proof_vk) ||
+    !isAddrOrHash(input.registered_vk) ||
+    !isAddrOrHash(input.proof_vk) ||
     !HEX20.test(input.recipient) ||
     !HEX20.test(input.condition_recipient)
   ) {

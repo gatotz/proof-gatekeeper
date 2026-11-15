@@ -34,8 +34,8 @@ export function hexToField(hex: string): bigint {
  */
 export function hashVk(vkHex: string): bigint {
   const bytes = Buffer.from(vkHex.replace(/^0x/, ""), "hex");
-  if (bytes.length !== 20) {
-    throw new Error(`vk must be a 20-byte address: ${vkHex}`);
+  if (bytes.length === 0) {
+    throw new Error(`vk must be non-empty hex: ${vkHex}`);
   }
   return BigInt("0x" + keccak256(bytes)) % FIELD_PRIME;
 }
