@@ -113,6 +113,22 @@ export function createServer(config: Config, deps: ServerDeps): http.Server {
     // 3. No proof can be generated for this outcome (PROOF_REUSED — the
     //    platform expects no proof — or a malformed task). Fail closed.
     if (!canProve(outcome)) {
+      if (outcome.reason === "INVALID_TASK") {
+        // Log the envelope shape so a platform format mismatch is
+        // diagnosable from the machine logs (no secrets in the envelope).
+        log(
+          `[task ${taskId ?? "?"}] INVALID_TASK envelope: ` +
+            JSON.stringify({
+              type: (envelope as unknown as Record<string, unknown>).type ?? null,
+              task_id: taskId,
+              mode: (envelope as unknown as Record<string, unknown>).mode ?? null,
+              issued_at: (envelope as unknown as Record<string, unknown>).issued_at ?? null,
+              deadline_at: (envelope as unknown as Record<string, unknown>).deadline_at ?? null,
+              input_keys: envelope && envelope.input ? Object.keys(envelope.input) : null,
+              input: envelope ? envelope.input : null,
+            }),
+        );
+      }
       log(`[task ${taskId ?? "?"}] ${outcome.decision} ${outcome.reason} (no proof)`);
       sendSigned(res, 200, noProofResponse(outcome.decision, outcome.reason));
       return;

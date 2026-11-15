@@ -68,6 +68,10 @@ export interface DecisionOutcome {
 const CLOCK_SKEW_MS = 5 * 60 * 1000;
 const HEX20 = /^0x[0-9a-fA-F]{40}$/;
 const HEX32 = /^0x[0-9a-fA-F]{64}$/;
+// proof_tx is NOT a circuit input (seen-set key only), so accept both the
+// 32-byte tx-hash form and the 16-byte UUID form the platform uses for
+// practice tasks (0x + 32 hex, i.e. a UUID without dashes).
+const HEX16 = /^0x[0-9a-fA-F]{32}$/;
 
 function invalid(): DecisionOutcome {
   return { decision: "REJECT", reason: "INVALID_TASK", statelessPass: false };
@@ -125,7 +129,7 @@ export function decide(
   ) {
     return invalid();
   }
-  if (!HEX32.test(input.proof_tx)) return invalid();
+  if (!HEX32.test(input.proof_tx) && !HEX16.test(input.proof_tx)) return invalid();
   if (task.issued_at) {
     const issued = new Date(task.issued_at).getTime();
     if (Number.isNaN(issued) || issued > now.getTime() + CLOCK_SKEW_MS) return invalid();
