@@ -26,12 +26,10 @@ primary_region = "sin"
   [[services.ports]]
     handlers = ["http"]
     port = 80
-    force_https = true
 
   [[services.ports]]
     handlers = ["tls", "http"]
     port = 443
-    force_https = true
 
   # /health must answer 200 with the signed preflight body.
   [[services.http_checks]]
