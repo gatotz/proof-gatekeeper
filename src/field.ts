@@ -43,15 +43,14 @@ export function hashVk(vkHex: string): bigint {
 /**
  * task_id string -> field element.
  *
- * ASSUMPTION (see README): the UTF-8 bytes of the task id, read as a
- * big-endian integer. Fits the field for ids up to ~31 bytes. As with
- * hashVk, the proof stays valid for any injective mapping; only a platform
- * cross-check could depend on the choice.
+ * The platform's task ids (e.g. "practice_<uuid>", 45 chars = 360 bits)
+ * exceed the ~254-bit BN128 scalar field, so the raw UTF-8 bytes cannot be
+ * read as an integer. Hash the UTF-8 bytes with keccak256 and reduce mod
+ * the field prime instead — injective enough for the commitment, and fits
+ * any length. As with hashVk, the proof stays valid for any consistent
+ * mapping; only a platform cross-check could depend on the choice.
  */
 export function taskIdToField(taskId: string): bigint {
-  const v = BigInt("0x" + Buffer.from(taskId, "utf8").toString("hex"));
-  if (v >= FIELD_PRIME) {
-    throw new Error(`task_id too long to fit the field: ${taskId}`);
-  }
-  return v;
+  const hash = keccak256(Buffer.from(taskId, "utf8"));
+  return BigInt("0x" + hash) % FIELD_PRIME;
 }
